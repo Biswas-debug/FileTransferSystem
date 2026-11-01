@@ -1,0 +1,20 @@
+# Compiled executables
+*.exe
+
+# Object files
+*.o
+*.obj
+
+# Log files
+*.log
+server_out.txt
+server_err.txt
+server_test.txt
+
+# Downloaded files folder (keep folder, ignore contents)
+client_files/*
+!client_files/.gitkeep
+
+# Windows
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LAN File Transfer Portal</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --success: #16a34a;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text-main);
+            padding: 24px 16px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Header */
+        .header {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        }
+
+        .header-title h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header-title p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-top: 4px;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #dcfce7;
+            color: #15803d;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .client-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #eff6ff;
+            color: #1d4ed8;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .badges-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+
+        /* Upload Card */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        }
+
+        .card-title {
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .drop-zone {
+            border: 2px dashed #cbd5e1;
+            border-radius: 10px;
+            padding: 32px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: #f8fafc;
+        }
+
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: var(--primary);
+            background: #eff6ff;
+        }
+
+        .drop-icon {
+            font-size: 2.4rem;
+            margin-bottom: 8px;
+        }
+
+        .drop-text {
+            font-weight: 600;
+            color: var(--text-main);
+            margin-bottom: 4px;
+        }
+
+        .drop-sub {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .progress-bar-container {
+            display: none;
+            margin-top: 16px;
+            background: #e2e8f0;
+            border-radius: 9999px;
+            height: 10px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: var(--primary);
+            transition: width 0.2s ease;
+        }
+
+        .upload-status {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            text-align: center;
+        }
+
+        /* Files Table */
+        .search-bar {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 0.95rem;
+            margin-bottom: 16px;
+            outline: none;
+        }
+
+        .search-bar:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+        }
+
+        .table-responsive {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            background: #f8fafc;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        td {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.95rem;
+        }
+
+        tr:hover td {
+            background-color: #f8fafc;
+        }
+
+        .file-name-cell {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 500;
+        }
+
+        .file-icon {
+            font-size: 1.3rem;
+        }
+
+        .size-cell {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            white-space: nowrap;
+        }
+
+        .btn-download {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--primary);
+            color: white;
+            text-decoration: none;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: background 0.15s ease;
+        }
+
+        .btn-download:hover {
+            background: var(--primary-hover);
+        }
+
+        .btn-refresh {
+            background: #f1f5f9;
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .btn-refresh:hover {
+            background: #e2e8f0;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 16px;
+            color: var(--text-muted);
+        }
+
+        .footer {
+            text-align: center;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- Header -->
+    <div class="header">
+        <div class="header-title">
+            <h1>📁 Local Network File Portal</h1>
+            <p>Direct File Transfer with C Language Socket Server</p>
+        </div>
+        <div class="badges-row">
+            <div class="status-badge">
+                <span class="status-dot"></span>
+                Server Online (Port 9000)
+            </div>
+            <div class="client-badge">
+                👥 Active Clients: <span id="clientCount">...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Box -->
+    <div class="card">
+        <div class="card-title">
+            <span>⬆️ Upload File to Server</span>
+        </div>
+        <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+            <div class="drop-icon">📤</div>
+            <div class="drop-text">Click to choose a file, or drag and drop here</div>
+            <div class="drop-sub">Upload any document, image, or video directly to the server</div>
+        </div>
+        <input type="file" id="fileInput" onchange="handleFileSelect(this.files)">
+        <div class="progress-bar-container" id="progressContainer">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="upload-status" id="uploadStatus"></div>
+    </div>
+
+    <!-- Files Table -->
+    <div class="card">
+        <div class="card-title">
+            <span>📋 Files Available on Server</span>
+            <button class="btn-refresh" onclick="loadFiles()">↻ Refresh</button>
+        </div>
+        <input type="text" id="searchInput" class="search-bar" placeholder="🔍 Search files..." onkeyup="filterFiles()">
+        
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>File Name</th>
+                        <th>Size</th>
+                        <th style="text-align: right;">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="filesTableBody">
+                    <tr>
+                        <td colspan="3" class="empty-state">Loading server files...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="footer">
+        Powered by Pure C Winsock Server &middot; Multi-Client Architecture
+    </div>
+</div>
+
+<script>
+    let allFiles = [];
+
+    function formatBytes(bytes) {
+        if (!bytes || bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function getFileIcon(name) {
+        const ext = name.split('.').pop().toLowerCase();
+        if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) return '🖼️';
+        if (['pdf'].includes(ext)) return '📕';
+        if (['doc', 'docx'].includes(ext)) return '📘';
+        if (['xls', 'xlsx'].includes(ext)) return '📗';
+        if (['zip', 'rar', '7z', 'tar'].includes(ext)) return '📦';
+        if (['mp4', 'mkv', 'mov'].includes(ext)) return '🎥';
+        if (['mp3', 'wav'].includes(ext)) return '🎵';
+        if (['c', 'cpp', 'py', 'js', 'html', 'json'].includes(ext)) return '💻';
+        return '📄';
+    }
+
+    async function loadFiles() {
+        try {
+            const res = await fetch('/api/files');
+            if (!res.ok) throw new Error('Network error');
+            allFiles = await res.json();
+            renderTable(allFiles);
+        } catch (e) {
+            document.getElementById('filesTableBody').innerHTML = `
+                <tr><td colspan="3" class="empty-state" style="color: #dc2626;">Failed to load files. Server offline or unreachable.</td></tr>
+            `;
+        }
+    }
+
+    function renderTable(files) {
+        const tbody = document.getElementById('filesTableBody');
+        if (!files || files.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="3" class="empty-state">No files uploaded yet. Be the first to upload one!</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = files.map(f => `
+            <tr>
+                <td>
+                    <div class="file-name-cell">
+                        <span class="file-icon">${getFileIcon(f.name)}</span>
+                        <span>${escapeHtml(f.name)}</span>
+                    </div>
+                </td>
+                <td class="size-cell">${formatBytes(f.size)}</td>
+                <td style="text-align: right;">
+                    <a href="/download?file=${encodeURIComponent(f.name)}" class="btn-download" download>
+                        ⬇ Download
+                    </a>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    function filterFiles() {
+        const query = document.getElementById('searchInput').value.toLowerCase();
+        const filtered = allFiles.filter(f => f.name.toLowerCase().includes(query));
+        renderTable(filtered);
+    }
+
+    function escapeHtml(str) {
+        return str.replace(/[&<>'"]/g, tag => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+        }[tag] || tag));
+    }
+
+    // Drag and Drop
+    const dropZone = document.getElementById('dropZone');
+    ['dragenter', 'dragover'].forEach(name => {
+        dropZone.addEventListener(name, (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+    });
+
+    ['dragleave', 'drop'].forEach(name => {
+        dropZone.addEventListener(name, (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+        });
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        const files = e.dataTransfer.files;
+        if (files.length > 0) handleFileSelect(files);
+    });
+
+    function handleFileSelect(files) {
+        if (!files || files.length === 0) return;
+        uploadFile(files[0]);
+    }
+
+    function uploadFile(file) {
+        const pContainer = document.getElementById('progressContainer');
+        const pFill = document.getElementById('progressFill');
+        const status = document.getElementById('uploadStatus');
+
+        pContainer.style.display = 'block';
+        pFill.style.width = '0%';
+        status.style.color = '#2563eb';
+        status.innerText = `Uploading "${file.name}"...`;
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/upload?name=' + encodeURIComponent(file.name), true);
+
+        xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                pFill.style.width = percent + '%';
+                status.innerText = `Uploading "${file.name}" (${percent}%)...`;
+            }
+        };
+
+        xhr.onload = () => {
+            if (xhr.status === 200) {
+                pFill.style.width = '100%';
+                status.style.color = '#16a34a';
+                status.innerText = `✅ "${file.name}" uploaded successfully!`;
+                loadFiles();
+                setTimeout(() => {
+                    pContainer.style.display = 'none';
+                    status.innerText = '';
+                }, 3000);
+            } else {
+                status.style.color = '#dc2626';
+                status.innerText = `❌ Upload failed. Server returned error ${xhr.status}.`;
+            }
+        };
+
+        xhr.onerror = () => {
+            status.style.color = '#dc2626';
+            status.innerText = '❌ Connection lost during upload.';
+        };
+
+        xhr.send(file);
+    }
+
+    // Auto-load on page ready
+    loadFiles();
+
+    // Live client count - poll every 3 seconds
+    async function loadStatus() {
+        try {
+            const res = await fetch('/api/status');
+            if (!res.ok) return;
+            const data = await res.json();
+            document.getElementById('clientCount').innerText = data.clients;
+        } catch (e) {
+            document.getElementById('clientCount').innerText = '?';
+        }
+    }
+
+    loadStatus();
+    setInterval(loadStatus, 3000);
+</script>
+</body>
+</html>
