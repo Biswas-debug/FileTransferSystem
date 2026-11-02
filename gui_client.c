@@ -41,6 +41,8 @@
 #define IDC_PROGRESS        109
 #define IDC_STATUS          110
 #define IDC_LOG             111
+#define IDC_EDIT_AUTH       112
+#define IDC_BTN_FETCH       113
 
 #define PORT_DEFAULT  9000
 #define BUFFER_SIZE   8192
@@ -55,9 +57,9 @@
 
 /* ── globals ──────────────────────────────────────────────────────────── */
 static HWND g_hwnd;
-static HWND g_edit_ip, g_edit_port;
+static HWND g_edit_ip, g_edit_port, g_edit_auth;
 static HWND g_btn_connect, g_btn_refresh, g_btn_upload;
-static HWND g_btn_download, g_btn_disconnect;
+static HWND g_btn_download, g_btn_fetch, g_btn_disconnect;
 static HWND g_list_files, g_progress, g_status_bar, g_log;
 
 static SOCKET g_sock   = INVALID_SOCKET;
@@ -88,6 +90,8 @@ static void set_status(const char *text)
 {
     SendMessageA(g_status_bar, SB_SETTEXTA, 0, (LPARAM)text);
 }
+
+static void do_refresh(void);
 
 /* ── socket helpers ───────────────────────────────────────────────────── */
 static int net_send_all(const char *data, int len)
@@ -131,9 +135,11 @@ static void ui_set_connected(int yes)
     EnableWindow(g_btn_connect,    !yes);
     EnableWindow(g_edit_ip,        !yes);
     EnableWindow(g_edit_port,      !yes);
+    EnableWindow(g_edit_auth,      !yes);
     EnableWindow(g_btn_refresh,     yes);
     EnableWindow(g_btn_upload,      yes);
     EnableWindow(g_btn_download,    yes);
+    EnableWindow(g_btn_fetch,       yes);
     EnableWindow(g_btn_disconnect,  yes);
 }
 
@@ -351,12 +357,44 @@ static void do_connect(void)
         set_status("Not connected."); return;
     }
 
+    /* ── authenticate with server access code ── */
+    char auth_code[64] = "";
+    GetWindowTextA(g_edit_auth, auth_code, sizeof(auth_code));
+
+    char auth_cmd[128];
+    snprintf(auth_cmd, sizeof(auth_cmd), "AUTH %s\n", auth_code);
+    if (!net_send_all(auth_cmd, (int)strlen(auth_cmd))) {
+        log_msg("Authentication failed: connection dropped.");
+        closesocket(g_sock); g_sock = INVALID_SOCKET;
+        WSACleanup();
+        set_status("Not connected."); return;
+    }
+
+    char auth_resp[MAX_LINE];
+    if (!net_recv_line(auth_resp, sizeof(auth_resp))) {
+        log_msg("Authentication failed: no response from server.");
+        closesocket(g_sock); g_sock = INVALID_SOCKET;
+        WSACleanup();
+        set_status("Not connected."); return;
+    }
+
+    if (strcmp(auth_resp, "AUTH_OK") != 0) {
+        log_msg("Access Denied! Incorrect access code.");
+        MessageBoxA(g_hwnd, "Incorrect Access Code! Access denied by server.", "Authentication Error", MB_ICONWARNING | MB_OK);
+        closesocket(g_sock); g_sock = INVALID_SOCKET;
+        WSACleanup();
+        set_status("Authentication failed."); return;
+    }
+
     char msg[200];
-    snprintf(msg, sizeof(msg), "Connected to %s:%d", ip, port);
+    snprintf(msg, sizeof(msg), "Connected & Authenticated to %s:%d", ip, port);
     log_msg(msg);
     set_status(msg);
     ui_set_connected(1);
     SendMessage(g_progress, PBM_SETPOS, 0, 0);
+
+    /* automatically refresh file list after successful connect */
+    do_refresh();
 }
 
 static void do_disconnect(void)
@@ -489,6 +527,134 @@ static HFONT mk_font(int sz, int bold, const char *name)
                        CLEARTYPE_QUALITY, DEFAULT_PITCH, name);
 }
 
+/* ── Web URL Prompt Dialog ───────────────────────────────────────────── */
+static char g_prompted_url[2048] = "";
+
+static LRESULT CALLBACK UrlPromptProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp)
+{
+    static HWND hEdit;
+    switch (msg) {
+        case WM_CREATE:
+            mk_label(hDlg, "Enter File/Topic to Search (e.g. bmsce photo, python) OR Web URL:", 15, 12, 420, 20, g_font_ui);
+            hEdit = mk_edit(hDlg, "", 15, 36, 400, 24, ES_AUTOHSCROLL, 201, g_font_ui);
+            mk_button(hDlg, "Search & Fetch", 190, 72, 130, 28, IDOK, g_font_ui);
+            mk_button(hDlg, "Cancel", 330, 72, 85, 28, IDCANCEL, g_font_ui);
+            SetFocus(hEdit);
+            break;
+        case WM_COMMAND:
+            if (LOWORD(wp) == IDOK) {
+                GetWindowTextA(hEdit, g_prompted_url, sizeof(g_prompted_url));
+                DestroyWindow(hDlg);
+            } else if (LOWORD(wp) == IDCANCEL) {
+                g_prompted_url[0] = '\0';
+                DestroyWindow(hDlg);
+            }
+            break;
+        case WM_CLOSE:
+            g_prompted_url[0] = '\0';
+            DestroyWindow(hDlg);
+            break;
+        default:
+            return DefWindowProcA(hDlg, msg, wp, lp);
+    }
+    return 0;
+}
+
+static int get_url_from_user(HWND hParent, char *out_url, int max_len)
+{
+    g_prompted_url[0] = '\0';
+    WNDCLASSEXA wc;
+    memset(&wc, 0, sizeof(wc));
+    wc.cbSize = sizeof(wc);
+    wc.lpfnWndProc = UrlPromptProc;
+    wc.hInstance = GetModuleHandleA(NULL);
+    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+    wc.lpszClassName = "UrlPromptDlg";
+    RegisterClassExA(&wc);
+
+    HWND hDlg = CreateWindowExA(WS_EX_DLGMODALFRAME, "UrlPromptDlg", "Search Google/Web or Fetch URL",
+        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+        CW_USEDEFAULT, CW_USEDEFAULT, 445, 145, hParent, NULL, GetModuleHandleA(NULL), NULL);
+
+    EnableWindow(hParent, FALSE);
+    MSG msg;
+    while (IsWindow(hDlg) && GetMessageA(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessageA(&msg);
+    }
+    EnableWindow(hParent, TRUE);
+    SetForegroundWindow(hParent);
+
+    if (g_prompted_url[0] != '\0') {
+        strncpy(out_url, g_prompted_url, max_len - 1);
+        out_url[max_len - 1] = '\0';
+        return 1;
+    }
+    return 0;
+}
+
+typedef struct { char url[2048]; } FetchArg;
+
+static DWORD WINAPI fetch_thread(LPVOID arg)
+{
+    FetchArg *fa = (FetchArg *)arg;
+
+    char header[MAX_LINE * 3];
+    if (strncmp(fa->url, "http://", 7) == 0 || strncmp(fa->url, "https://", 8) == 0) {
+        snprintf(header, sizeof(header), "FETCH\n%s\n", fa->url);
+    } else {
+        snprintf(header, sizeof(header), "SEARCH\n%s\n", fa->url);
+    }
+
+    if (!net_send_all(header, (int)strlen(header))) {
+        PostMessageA(g_hwnd, WM_LOG_LINE, 0, (LPARAM)_strdup("Web operation failed: connection error."));
+        PostMessageA(g_hwnd, WM_TRANSFER_DONE, 0, 0);
+        free(fa);
+        return 1;
+    }
+
+    char resp[MAX_LINE];
+    if (!net_recv_line(resp, sizeof(resp))) {
+        PostMessageA(g_hwnd, WM_LOG_LINE, 0, (LPARAM)_strdup("No response from server."));
+    } else if (strncmp(resp, "OK ", 3) == 0) {
+        char *msg = (char *)malloc(512);
+        snprintf(msg, 512, "Success! File retrieved and saved to server as: %s", resp + 3);
+        PostMessageA(g_hwnd, WM_LOG_LINE, 0, (LPARAM)msg);
+        do_refresh();
+    } else {
+        char *msg = (char *)malloc(256);
+        snprintf(msg, 256, "Server replied: %s", resp);
+        PostMessageA(g_hwnd, WM_LOG_LINE, 0, (LPARAM)msg);
+    }
+
+    PostMessageA(g_hwnd, WM_TRANSFER_DONE, 0, 0);
+    free(fa);
+    return 0;
+}
+
+static void do_fetch(void)
+{
+    if (g_sock == INVALID_SOCKET) return;
+
+    char url[2048] = {0};
+    if (!get_url_from_user(g_hwnd, url, sizeof(url))) return;
+
+    char logmsg[2200];
+    snprintf(logmsg, sizeof(logmsg), "Requesting server to fetch: %s", url);
+    log_msg(logmsg);
+    set_status("Server fetching file from web...");
+
+    FetchArg *fa = (FetchArg *)malloc(sizeof(FetchArg));
+    if (!fa) return;
+    strncpy(fa->url, url, sizeof(fa->url) - 1);
+
+    ui_set_connected(0);
+    EnableWindow(g_btn_disconnect, 1);
+
+    HANDLE t = CreateThread(NULL, 0, fetch_thread, fa, 0, NULL);
+    if (t) CloseHandle(t);
+}
+
 /* ── WndProc ─────────────────────────────────────────────────────────── */
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
@@ -509,14 +675,18 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         /* connection row */
         mk_label(hwnd, "Server IP:", 18, 56, 76, 20, g_font_ui);
         g_edit_ip   = mk_edit(hwnd, "127.0.0.1",
-                               97, 53, 156, 24, ES_AUTOHSCROLL, IDC_EDIT_IP, g_font_ui);
-        mk_label(hwnd, "Port:", 262, 56, 36, 20, g_font_ui);
+                               97, 53, 130, 24, ES_AUTOHSCROLL, IDC_EDIT_IP, g_font_ui);
+        mk_label(hwnd, "Port:", 234, 56, 36, 20, g_font_ui);
         g_edit_port = mk_edit(hwnd, "9000",
-                               300, 53, 60, 24, ES_AUTOHSCROLL | ES_NUMBER,
+                               270, 53, 50, 24, ES_AUTOHSCROLL | ES_NUMBER,
                                IDC_EDIT_PORT, g_font_ui);
+        mk_label(hwnd, "Code:", 328, 56, 40, 20, g_font_ui);
+        g_edit_auth = mk_edit(hwnd, "",
+                               368, 53, 60, 24, ES_AUTOHSCROLL | ES_PASSWORD,
+                               IDC_EDIT_AUTH, g_font_ui);
 
-        g_btn_connect    = mk_button(hwnd, "Connect",    370, 52, 94, 26, IDC_BTN_CONNECT,    g_font_ui);
-        g_btn_disconnect = mk_button(hwnd, "Disconnect", 472, 52, 102, 26, IDC_BTN_DISCONNECT, g_font_ui);
+        g_btn_connect    = mk_button(hwnd, "Connect",    436, 52, 68, 26, IDC_BTN_CONNECT,    g_font_ui);
+        g_btn_disconnect = mk_button(hwnd, "Disconnect", 510, 52, 84, 26, IDC_BTN_DISCONNECT, g_font_ui);
 
         /* horizontal rule */
         CreateWindowExA(0, "STATIC", "",
@@ -537,8 +707,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         SendMessageA(g_list_files, WM_SETFONT, (WPARAM)g_font_mono, TRUE);
 
         /* action buttons */
-        g_btn_upload   = mk_button(hwnd, "Upload File",        18, 302, 126, 30, IDC_BTN_UPLOAD,   g_font_ui);
-        g_btn_download = mk_button(hwnd, "Download Selected", 154, 302, 160, 30, IDC_BTN_DOWNLOAD, g_font_ui);
+        g_btn_upload   = mk_button(hwnd, "Upload File",        18, 302, 115, 30, IDC_BTN_UPLOAD,   g_font_ui);
+        g_btn_download = mk_button(hwnd, "Download Selected", 140, 302, 140, 30, IDC_BTN_DOWNLOAD, g_font_ui);
+        g_btn_fetch    = mk_button(hwnd, "Fetch from Web URL", 288, 302, 145, 30, IDC_BTN_FETCH,    g_font_ui);
 
         /* progress */
         mk_label(hwnd, "Progress:", 18, 346, 68, 20, g_font_ui);
@@ -598,6 +769,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             case IDC_BTN_REFRESH:    do_refresh();    break;
             case IDC_BTN_UPLOAD:     do_upload();     break;
             case IDC_BTN_DOWNLOAD:   do_download();   break;
+            case IDC_BTN_FETCH:      do_fetch();      break;
         }
         break;
     }

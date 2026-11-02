@@ -333,6 +333,41 @@ int list_files(SOCKET sock)
     return 1;
 }
 
+static int fetch_web_file(SOCKET sock)
+{
+    char query[1024];
+    printf("\nEnter File/Topic to Search (e.g. balen shah, iris dataset, sample pdf) OR direct Web URL:\n> ");
+    if (!fgets(query, sizeof(query), stdin)) return 1;
+    query[strcspn(query, "\r\n")] = '\0';
+    if (strlen(query) == 0) return 1;
+
+    char cmd[1200];
+    if (strncmp(query, "http://", 7) == 0 || strncmp(query, "https://", 8) == 0) {
+        snprintf(cmd, sizeof(cmd), "FETCH\n%s\n", query);
+    } else {
+        snprintf(cmd, sizeof(cmd), "SEARCH\n%s\n", query);
+    }
+
+    printf("Requesting server to fetch from web... please wait...\n");
+    if (!send_all(sock, cmd, (int)strlen(cmd))) {
+        printf("Connection lost.\n");
+        return 0;
+    }
+
+    char resp[MAX_LINE];
+    if (!recv_line(sock, resp, sizeof(resp))) {
+        printf("No response from server.\n");
+        return 0;
+    }
+
+    if (strncmp(resp, "OK ", 3) == 0) {
+        printf("SUCCESS! File saved to server repository: %s\n", resp + 3);
+    } else {
+        printf("Failed: %s\n", resp);
+    }
+    return 1;
+}
+
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -397,6 +432,43 @@ int main(void)
 
     printf("Connected to TCP File Transfer Server!\n");
 
+    /* ── authenticate with access code ── */
+    char access_code[64];
+    printf("Enter Access Code: ");
+    if (!fgets(access_code, sizeof(access_code), stdin)) {
+        printf("Failed to read access code.\n");
+        closesocket(sock);
+        WSACleanup();
+        return 1;
+    }
+    access_code[strcspn(access_code, "\r\n")] = '\0';
+
+    char auth_cmd[128];
+    snprintf(auth_cmd, sizeof(auth_cmd), "AUTH %s\n", access_code);
+    if (!send_all(sock, auth_cmd, (int)strlen(auth_cmd))) {
+        printf("Connection lost during authentication.\n");
+        closesocket(sock);
+        WSACleanup();
+        return 1;
+    }
+
+    char auth_resp[MAX_LINE];
+    if (!recv_line(sock, auth_resp, sizeof(auth_resp))) {
+        printf("No response from server.\n");
+        closesocket(sock);
+        WSACleanup();
+        return 1;
+    }
+
+    if (strcmp(auth_resp, "AUTH_OK") != 0) {
+        printf("Access denied! Wrong access code.\n");
+        closesocket(sock);
+        WSACleanup();
+        return 1;
+    }
+
+    printf("Access code verified! You are now authenticated.\n");
+
     int running = 1;
 
     while (running)
@@ -408,15 +480,16 @@ int main(void)
         printf("1. Upload file (browse computer)\n");
         printf("2. Download file\n");
         printf("3. View files on server\n");
-        printf("4. Exit\n");
-        printf("Enter choice (1-4): ");
+        printf("4. Fetch/Search File from Web or Internet URL\n");
+        printf("5. Exit\n");
+        printf("Enter choice (1-5): ");
 
         if (!fgets(input, sizeof(input), stdin))
             break;
 
         if (sscanf(input, "%d", &choice) != 1)
         {
-            printf("Please enter 1, 2, 3, or 4.\n");
+            printf("Please enter 1, 2, 3, 4, or 5.\n");
             continue;
         }
 
@@ -435,6 +508,10 @@ int main(void)
                 break;
 
             case 4:
+                running = fetch_web_file(sock);
+                break;
+
+            case 5:
                 send_all(sock, "QUIT\n", 5);
                 running = 0;
                 printf("Exiting client.\n");

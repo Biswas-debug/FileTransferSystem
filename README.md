@@ -13,6 +13,7 @@ Multiple computers on the same Wi-Fi/LAN can upload and download files from a ce
 - ✅ **Web Browser Portal** — anyone on the same Wi-Fi can open `http://<SERVER_IP>:9000` in Chrome/Edge and transfer files
 - ✅ **Drag & Drop Upload** — from the browser portal
 - ✅ **Live Client Count** — web portal shows how many clients are connected in real time
+- ✅ **Security Access Code** — clients must enter the authorization code (`2026`) before accessing, uploading, or downloading files
 - ✅ **No internet required** — works entirely on LAN / Wi-Fi
 
 ---

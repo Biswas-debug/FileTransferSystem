@@ -5,10 +5,11 @@ REM  Requires: MSYS2  (C:\msys64\ucrt64\bin\gcc.exe)
 REM ──────────────────────────────────────────────────────────────────────
 
 set GCC=C:\msys64\ucrt64\bin\gcc.exe
+set PATH=C:\msys64\ucrt64\bin;%PATH%
 
 echo.
 echo [1/3] Compiling server.c  ...
-"%GCC%" -O2 server.c -o server.exe -lws2_32 -static-libgcc
+"%GCC%" -O2 server.c -o server.exe -lws2_32 -lurlmon -static-libgcc
 if %errorlevel% neq 0 (
     echo   FAILED - server.exe not updated
 ) else (
